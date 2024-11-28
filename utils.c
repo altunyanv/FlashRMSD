@@ -5,6 +5,9 @@
 #include <math.h>
 
 #include "utils.h"
+#include "data_structs.h"
+
+#define OPT_LEVEL 2
 
 int get_atomic_number(const char* symbol) {
     int num_elements = sizeof(atom_table) / sizeof(AtomEntry);
@@ -255,7 +258,7 @@ double search_assignment(const SearchData* data, int* assignment) {
             for (int i = 0; i < num_atoms; i++) 
                 if (!active_choices_mask[i]) {
                     double current_metric = candidate_data[i][0];
-                    if (current_metric <= best_metric) {
+                    if (current_metric < best_metric) {
                         best_metric = current_metric;
                         id = i;
                     }
@@ -264,8 +267,8 @@ double search_assignment(const SearchData* data, int* assignment) {
             active_choices[index] = id;
             active_choices_mask[id] = 1;
 
-            for (int i = 1; i <= adjacency_list_1[id][0]; i++)
-                mapped_connections[adjacency_list_1[id][i]]++;
+            // for (int i = 1; i <= adjacency_list_1[id][0]; i++)
+            //     mapped_connections[adjacency_list_1[id][i]]++;
         }
 
         if (active_choices_candidate_index[index] == candidate_data[id][0] - 1) {
@@ -273,8 +276,8 @@ double search_assignment(const SearchData* data, int* assignment) {
             active_choices_mask[id] = 0;
             
             active_choices[index] = -1;
-            for (int i = 1; i <= adjacency_list_1[id][0]; i++)
-                mapped_connections[adjacency_list_1[id][i]]--;
+            // for (int i = 1; i <= adjacency_list_1[id][0]; i++)
+            //     mapped_connections[adjacency_list_1[id][i]]--;
             index--;
 
             if (index < 0) break;
@@ -367,7 +370,79 @@ double search_assignment_recurse(const SearchData* data, int* best_assignment) {
         state->assignment[i] = -1;
     }
 
-    search_assignment_recurse_helper(0, data, state);
+    int* look_up_ids = (int*)malloc((data->num_atoms + 1) * sizeof(int));
+    if (!look_up_ids) {
+        fprintf(stderr, "Memory allocation failed for look_up_ids.\n");
+        free(state->used_mask_1);   free(state->used_mask_2);
+        free(state->assignment);    free(state);
+        return INFINITY;
+    }
+
+    look_up_ids[0] = data->num_atoms;
+    for (int i = 1; i <= data->num_atoms; i++) look_up_ids[i] = i - 1;
+        
+    if (OPT_LEVEL == 0)
+        search_assignment_recurse_helper(0, data, state, data->num_atoms, look_up_ids);
+    else {
+        look_up_ids[0] = 0;
+        int look_up_index = 1;
+
+        for (int i = 0; i < data->num_atoms; i++)
+            if (data->candidates[i][0] == 1) {
+                state->used_mask_1[i] = 1;
+                state->used_mask_2[data->candidates[i][1]] = 1;
+                state->assignment[i] = data->candidates[i][1];
+                state->assigned_count++;
+                state->current_sum += data->squared_distances[i][0];
+            } else {
+                look_up_ids[0]++;
+                look_up_ids[look_up_index++] = i;
+            }
+
+        look_up_ids = (int*)realloc(look_up_ids, (look_up_ids[0] + 1) * sizeof(int));
+
+        if (OPT_LEVEL == 1)
+            search_assignment_recurse_helper(0, data, state, data->num_atoms, look_up_ids);
+        else if (OPT_LEVEL == 2) {
+            DisjointSetUnion* dsu = init_disjoint_set_union(data->num_atoms, look_up_ids, data->adjacency_list_1, data->candidates);            
+
+            if (!dsu) {
+                fprintf(stderr, "Failed to initialize DisjointSetUnion.\n");
+                free(state->used_mask_1);   free(state->used_mask_2);
+                free(state->assignment);    free(state);
+                return INFINITY;
+            }
+
+            int** disjoint_sets = get_disjoint_sets_and_free_up(dsu);
+
+            for (int i = 0; disjoint_sets[i]; i++) {
+                state->best_sum = INFINITY;
+
+                for (int j = 1; j <= disjoint_sets[i][0]; j++)
+                    disjoint_sets[i][j] = look_up_ids[1 + disjoint_sets[i][j]];
+
+                int threshold = state->assigned_count + disjoint_sets[i][0];
+                
+                search_assignment_recurse_helper(0, data, state, threshold, disjoint_sets[i]);
+
+                for (int j = 1; j <= disjoint_sets[i][0]; j++) {
+                    int id = disjoint_sets[i][j];
+                    state->used_mask_1[id] = 1;
+                    state->used_mask_2[state->best_assignment[id]] = 1;
+                    state->assignment[id] = state->best_assignment[id];
+                }
+
+                state->assigned_count = threshold;
+                state->current_sum = state->best_sum;
+            }
+        } else {
+            fprintf(stderr, "Invalid optimization level.\n");
+            free(state->used_mask_1);   free(state->used_mask_2);
+            free(state->assignment);    free(state);
+            return INFINITY;
+        }
+    } 
+
     double best_rmsd = sqrt(state->best_sum / data->num_atoms);
 
     free(state->used_mask_1);   free(state->used_mask_2);
@@ -376,8 +451,8 @@ double search_assignment_recurse(const SearchData* data, int* best_assignment) {
     return best_rmsd;
 }
 
-void search_assignment_recurse_helper(int v, const SearchData* data, RecursionState* state) {
-    if (state->assigned_count == data->num_atoms) {
+void search_assignment_recurse_helper(int v, const SearchData* data, RecursionState* state, int threshold, int* look_up_ids) {
+    if (state->assigned_count == threshold) {
         if (state->current_sum < state->best_sum) {
             memcpy(state->best_assignment, state->assignment, data->num_atoms * sizeof(int));
             state->best_sum = state->current_sum;
@@ -385,10 +460,11 @@ void search_assignment_recurse_helper(int v, const SearchData* data, RecursionSt
     } else {
         int u = -1;
 
-        for (int i = 0; i < data->num_atoms; i++) {
-            if (state->used_mask_1[i]) continue;
+        for (int i = 1; i <= look_up_ids[0]; i++) {
+            int id = look_up_ids[i];
+            if (state->used_mask_1[id]) continue;
 
-            if (u == -1 || data->candidates[i][0] <= data->candidates[u][0]) u = i;
+            if (u == -1 || data->candidates[id][0] < data->candidates[u][0]) u = id;
         }
         
         state->used_mask_1[u] = 1;
@@ -425,7 +501,7 @@ void search_assignment_recurse_helper(int v, const SearchData* data, RecursionSt
             state->assignment[u] = w;
             state->current_sum += data->squared_distances[u][j - 1];
 
-            search_assignment_recurse_helper(u, data, state);
+            search_assignment_recurse_helper(u, data, state, threshold, look_up_ids);
 
             state->current_sum -= data->squared_distances[u][j - 1];
             state->used_mask_2[w] = 0;
