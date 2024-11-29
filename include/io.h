@@ -1,5 +1,15 @@
-#ifndef UTILS_H
-#define UTILS_H
+#ifndef IO_H
+#define IO_H
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+#include <math.h>
+
+#include "common.h"
+
+#include "utils.h"
 
 typedef struct {
     const char* symbol;
@@ -35,48 +45,31 @@ static AtomEntry atom_table[] = {
 
 int get_atomic_number(const char*);
 
-int check_array_unordered_identity(int, int*, int*);
-
-#define MAX_BLOCK_LENGTH 10
-#define LAYER_ID_SHIFT 20
-#define ATOMIC_NUMBER_SHIFT 10
-#define BLOCK_MASK 1023
-
-int get_layer_id(int);
-int get_atom_id(int);
-
-int layer_queue_hash(int*, int);
-int generate_layer_data(int, int*, int**, int*);
-
-int** get_candidate_data(int, int*, int*);
-double** get_candidate_squared_distances(int, double*, double*, int**);
-
 typedef struct {
     int num_atoms;
-    const int** candidates;
-    const double** squared_distances;
-    
-    const int** adjacency_list_1;
-    const int** adjacency_list_2;
-} SearchData;
 
-const SearchData* init_search_data(int, int**, double**, int**, int**);
+    int* atomic_numbers;
+    double* coordinates;
 
-typedef struct {
-    int* used_mask_1;
-    int* used_mask_2;
+    int** adjacency_list;
 
-    int* assignment;
-    int assigned_count;
-    double current_sum;
+    int* layer_data;
+} MolecularData;
 
-    int* best_assignment;
-    double best_sum;
-} RecursionState;
+int handle_error(const char*, FILE*);
 
-double search_assignment(const SearchData*, int*);
+#define MAX_CONF_COUNT 100
 
-double search_assignment_recurse(const SearchData*, int*);
-void search_assignment_recurse_helper(int, const SearchData*, RecursionState*, int, int*);
+int read_sdf_block_from_file_ptr(FILE*, MolecularData*, int, int);
+int read_mol2_block_from_file_ptr(FILE*, MolecularData*, int, int);
 
-#endif
+int read_sdf_file(const char*, MolecularData*, int, int, int);
+int read_mol2_file(const char*, MolecularData*, int, int, int);
+
+int read_file(const char*, MolecularData*, int, int, int);
+
+MolecularData* read_input_files(const char*, const char*, int, int, int*);
+void free_mol_data(MolecularData*);
+void free_all_mol_data_allocations(MolecularData*, int);
+
+#endif // IO_H

@@ -1,13 +1,4 @@
-#ifndef DATA_STRUCTS_H
-#define DATA_STRUCTS_H
-
-#include <stdlib.h>
-#include <stdio.h>
-
-typedef struct {
-    int size;
-    int* parent;
-} DisjointSetUnion;
+#include "data_structs.h"
 
 int find_parent(DisjointSetUnion* dsu, int x) {
     if (dsu->parent[x] == x) return x;
@@ -56,7 +47,7 @@ DisjointSetUnion* init_disjoint_set_union(int num_atoms, int* look_up_ids, const
         int id = look_up_ids[i];
 
         for (int j = 1; j <= adjacency_list[id][0]; j++) {
-            int neighbor_id = adjacency_list[id][j];
+            int neighbor_id = get_bonded_atom_id(adjacency_list[id][j]);
             if (map_to_look_up_ids[neighbor_id] != -1)
                 merge(dsu, i - 1, map_to_look_up_ids[neighbor_id]);
         }
@@ -108,5 +99,3 @@ int** get_disjoint_sets_and_free_up(DisjointSetUnion* dsu) {
 
     return disjoint_sets;
 }
-
-#endif // DATA_STRUCTS_H

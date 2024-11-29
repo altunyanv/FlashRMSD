@@ -1,55 +1,6 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
-#include <math.h>
-
 #include "utils.h"
-#include "data_structs.h"
 
 #define OPT_LEVEL 2
-
-int get_atomic_number(const char* symbol) {
-    int num_elements = sizeof(atom_table) / sizeof(AtomEntry);
-    for (int i = 0; i < num_elements; ++i) {
-        if (strcmp(atom_table[i].symbol, symbol) == 0) {
-            return atom_table[i].atomic_number;
-        }
-    }
-    return 0;
-}
-
-int compare_ints(const void* a, const void* b) {
-    int ai = *(const int*)a, bi = *(const int*)b;
-    return (ai > bi) - (ai < bi);
-}
-
-int check_array_unordered_identity(int num_atoms, int* arr1, int* arr2) {
-    int* arr1_sorted = (int*)malloc(num_atoms * sizeof(int));
-    int* arr2_sorted = (int*)malloc(num_atoms * sizeof(int));
-
-    memcpy(arr1_sorted, arr1, num_atoms * sizeof(int));
-    memcpy(arr2_sorted, arr2, num_atoms * sizeof(int));
-
-    qsort(arr1_sorted, num_atoms, sizeof(int), compare_ints);
-    qsort(arr2_sorted, num_atoms, sizeof(int), compare_ints);
-
-    for (int i = 0; i < num_atoms; i++)
-        if (arr1_sorted[i] != arr2_sorted[i]) {
-            free(arr1_sorted);
-            free(arr2_sorted);
-
-            return 0;
-        }
-    
-    free(arr1_sorted);
-    free(arr2_sorted);
-    
-    return 1;
-}
-
-int get_layer_id(int value) { return (value >> LAYER_ID_SHIFT) & BLOCK_MASK;}
-int get_atom_id(int value) { return value & BLOCK_MASK; }
 
 int layer_queue_hash(int* layer_queue, int num_atoms) {
     uint32_t hash = 0;
@@ -81,7 +32,7 @@ int generate_layer_data(int num_atoms, int* atomic_numbers, int** adjacency_list
 
             int num_neighbors = adjacency_list[atom_id][0];
             for (int neighbor_index = 1; neighbor_index <= num_neighbors; neighbor_index++) {
-                int neighbor_atom_id = adjacency_list[atom_id][neighbor_index];
+                int neighbor_atom_id = get_bonded_atom_id(adjacency_list[atom_id][neighbor_index]);
                 if (!visited[neighbor_atom_id]) {
                     visited[neighbor_atom_id] = 1;
                     layer_queue[r++] = ((layer_id + 1) << LAYER_ID_SHIFT)
@@ -266,9 +217,6 @@ double search_assignment(const SearchData* data, int* assignment) {
 
             active_choices[index] = id;
             active_choices_mask[id] = 1;
-
-            // for (int i = 1; i <= adjacency_list_1[id][0]; i++)
-            //     mapped_connections[adjacency_list_1[id][i]]++;
         }
 
         if (active_choices_candidate_index[index] == candidate_data[id][0] - 1) {
@@ -276,8 +224,6 @@ double search_assignment(const SearchData* data, int* assignment) {
             active_choices_mask[id] = 0;
             
             active_choices[index] = -1;
-            // for (int i = 1; i <= adjacency_list_1[id][0]; i++)
-            //     mapped_connections[adjacency_list_1[id][i]]--;
             index--;
 
             if (index < 0) break;
@@ -299,14 +245,15 @@ double search_assignment(const SearchData* data, int* assignment) {
 
             found_next = 1;
             for (int j = 1; j <= adjacency_list_1[id][0]; j++) {
-                int neighbor_id_1 = adjacency_list_1[id][j];
+                int neighbor_id_1 = get_bonded_atom_id(adjacency_list_1[id][j]);
+                int bond_type_mask = get_bond_type(adjacency_list_1[id][j]) << BOND_TYPE_SHIFT;
                 int mapped_neighbor_id = current_assignment[neighbor_id_1];
 
                 if (mapped_neighbor_id == -1) continue;
 
                 int found = 0;
                 for (int k = 1; k <= adjacency_list_2[mapped_choice][0]; k++)
-                    if (mapped_neighbor_id == adjacency_list_2[mapped_choice][k]) {
+                    if ((mapped_neighbor_id | bond_type_mask) == adjacency_list_2[mapped_choice][k]) {
                         found = 1; break;
                     }
 
@@ -382,7 +329,7 @@ double search_assignment_recurse(const SearchData* data, int* best_assignment) {
     for (int i = 1; i <= data->num_atoms; i++) look_up_ids[i] = i - 1;
         
     if (OPT_LEVEL == 0)
-        search_assignment_recurse_helper(0, data, state, data->num_atoms, look_up_ids);
+        search_assignment_recurse_helper(data, state, data->num_atoms, look_up_ids);
     else {
         look_up_ids[0] = 0;
         int look_up_index = 1;
@@ -402,7 +349,7 @@ double search_assignment_recurse(const SearchData* data, int* best_assignment) {
         look_up_ids = (int*)realloc(look_up_ids, (look_up_ids[0] + 1) * sizeof(int));
 
         if (OPT_LEVEL == 1)
-            search_assignment_recurse_helper(0, data, state, data->num_atoms, look_up_ids);
+            search_assignment_recurse_helper(data, state, data->num_atoms, look_up_ids);
         else if (OPT_LEVEL == 2) {
             DisjointSetUnion* dsu = init_disjoint_set_union(data->num_atoms, look_up_ids, data->adjacency_list_1, data->candidates);            
 
@@ -423,7 +370,7 @@ double search_assignment_recurse(const SearchData* data, int* best_assignment) {
 
                 int threshold = state->assigned_count + disjoint_sets[i][0];
                 
-                search_assignment_recurse_helper(0, data, state, threshold, disjoint_sets[i]);
+                search_assignment_recurse_helper(data, state, threshold, disjoint_sets[i]);
 
                 for (int j = 1; j <= disjoint_sets[i][0]; j++) {
                     int id = disjoint_sets[i][j];
@@ -451,44 +398,48 @@ double search_assignment_recurse(const SearchData* data, int* best_assignment) {
     return best_rmsd;
 }
 
-void search_assignment_recurse_helper(int v, const SearchData* data, RecursionState* state, int threshold, int* look_up_ids) {
+void search_assignment_recurse_helper(const SearchData* data, RecursionState* state, int threshold, int* look_up_ids) {
     if (state->assigned_count == threshold) {
         if (state->current_sum < state->best_sum) {
             memcpy(state->best_assignment, state->assignment, data->num_atoms * sizeof(int));
             state->best_sum = state->current_sum;
         }
     } else {
-        int u = -1;
+        int id = -1;
 
         for (int i = 1; i <= look_up_ids[0]; i++) {
-            int id = look_up_ids[i];
-            if (state->used_mask_1[id]) continue;
+            if (state->used_mask_1[look_up_ids[i]]) continue;
 
-            if (u == -1 || data->candidates[id][0] < data->candidates[u][0]) u = id;
+            if (id == -1 || data->candidates[look_up_ids[i]][0] < data->candidates[id][0]) 
+                id = look_up_ids[i];
         }
         
-        state->used_mask_1[u] = 1;
+        state->used_mask_1[id] = 1;
         state->assigned_count++;
         
-        double current_sum = state->current_sum;
-        for (int j = 1; j <= data->candidates[u][0]; j++) {
-            if (current_sum + data->squared_distances[u][j - 1] >= state->best_sum) break;
+        const int** adjacency_list_1 = data->adjacency_list_1;
+        const int** adjacency_list_2 = data->adjacency_list_2;
 
-            int w = data->candidates[u][j];
+        double current_sum = state->current_sum;
+        for (int i = 1; i <= data->candidates[id][0]; i++) {
+            if (current_sum + data->squared_distances[id][i - 1] >= state->best_sum) break;
+
+            int mapped_choice = data->candidates[id][i];
             
-            if (state->used_mask_2[w]) continue;
+            if (state->used_mask_2[mapped_choice]) continue;
 
             // Validate the mapping
             int valid = 1;
-            for (int i = 1; i <= data->adjacency_list_1[u][0]; i++) {
-                int neighbor_id_1 = data->adjacency_list_1[u][i];
-                int neighbor_id_2 = state->assignment[neighbor_id_1];
+            for (int j = 1; j <= data->adjacency_list_1[id][0]; j++) {
+                int neighbor_id_1 = get_bonded_atom_id(adjacency_list_1[id][j]);
+                int bond_type_mask = get_bond_type(adjacency_list_1[id][j]) << BOND_TYPE_SHIFT;
+                int mapped_neighbor_id = state->assignment[neighbor_id_1];
 
-                if (neighbor_id_2 == -1) continue;
+                if (mapped_neighbor_id == -1) continue;
 
                 int found = 0;
-                for (int k = 1; k <= data->adjacency_list_2[w][0]; k++)
-                    if (neighbor_id_2 == data->adjacency_list_2[w][k]) {
+                for (int k = 1; k <= adjacency_list_2[mapped_choice][0]; k++)
+                    if ((mapped_neighbor_id | bond_type_mask) == adjacency_list_2[mapped_choice][k]) {
                         found = 1; break;
                     }
 
@@ -497,18 +448,18 @@ void search_assignment_recurse_helper(int v, const SearchData* data, RecursionSt
 
             if (!valid) continue;
 
-            state->used_mask_2[w] = 1;
-            state->assignment[u] = w;
-            state->current_sum += data->squared_distances[u][j - 1];
+            state->used_mask_2[mapped_choice] = 1;
+            state->assignment[id] = mapped_choice;
+            state->current_sum += data->squared_distances[id][i - 1];
 
-            search_assignment_recurse_helper(u, data, state, threshold, look_up_ids);
+            search_assignment_recurse_helper(data, state, threshold, look_up_ids);
 
-            state->current_sum -= data->squared_distances[u][j - 1];
-            state->used_mask_2[w] = 0;
-            state->assignment[u] = -1;
+            state->current_sum -= data->squared_distances[id][i - 1];
+            state->used_mask_2[mapped_choice] = 0;
+            state->assignment[id] = -1;
         }
 
         state->assigned_count--;
-        state->used_mask_1[u] = 0;
+        state->used_mask_1[id] = 0;
     }
 }
