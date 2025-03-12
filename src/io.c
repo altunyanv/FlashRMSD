@@ -27,6 +27,19 @@ int handle_error(const char* message, FILE* infile) {
     return 0;
 }
 
+int is_end_of_file(FILE *file) {
+    int ch;
+    
+    while ((ch = fgetc(file)) != EOF) {
+        if (!isspace(ch)) {
+            ungetc(ch, file);
+            return 0;
+        }
+    }
+    
+    return 1;
+}
+
 int read_sdf_block_from_file_ptr(FILE* infile, MolecularData* mol_data, int read_hydrogens, int read_bonds) {
     char line[256];
 
@@ -358,7 +371,7 @@ int read_sdf_file(const char* filename, MolecularData* mol_data, int read_hydrog
         }
     }
     
-    if (!feof(infile))
+    if (!is_end_of_file(infile))
         fprintf(stdout, "[Warning] Reached maximum number of conformers in %s. Returning first %d conformers\n", filename, max_conf_count);
 
     fclose(infile);
@@ -377,7 +390,7 @@ int read_mol2_file(const char* filename, MolecularData* mol_data, int read_hydro
         }
     }
     
-    if (!feof(infile))
+    if (!is_end_of_file(infile))
         fprintf(stdout, "[Warning] Reached maximum number of conformers in %s. Returning first %d conformers\n", filename, max_conf_count);
 
     fclose(infile);

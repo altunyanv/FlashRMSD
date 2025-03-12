@@ -43,6 +43,6 @@ typedef struct {
 double search_assignment(const SearchData*, int*);
 
 double search_assignment_recurse(const SearchData*, int*);
-void search_assignment_recurse_helper(const SearchData*, RecursionState*, int, int*);
+void search_assignment_recurse_helper(const SearchData*, RecursionState*, int, int*, int);
 
 #endif
