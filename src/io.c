@@ -118,7 +118,7 @@ int read_sdf_block_from_file_ptr(FILE* infile, MolecularData* mol_data, int read
     if (!adjacency_list_temp || !adjacency_sizes) return handle_error("Memory allocation failed for adjacency list.", infile);
 
     // Initialize adjacency list pointers to NULL
-    for (int i = 0; i < num_atoms; ++i) adjacency_list_temp[i] = NULL;
+    for (int i = 0; i < num_atoms; ++i) { adjacency_list_temp[i] = NULL; adjacency_sizes[i] = 0; }
 
     // Read bond block
     for (int i = 0; i < num_bonds_total; ++i) {
@@ -280,7 +280,7 @@ int read_mol2_block_from_file_ptr(FILE* infile, MolecularData* mol_data, int rea
     if (!adjacency_list_temp || !adjacency_sizes) return handle_error("Memory allocation failed for adjacency list.", infile);
 
     // Initialize adjacency list pointers to NULL
-    for (int i = 0; i < num_atoms; ++i) adjacency_list_temp[i] = NULL;
+    for (int i = 0; i < num_atoms; ++i) { adjacency_list_temp[i] = NULL; adjacency_sizes[i] = 0; }
 
     // Read bond block
     int found_bond_block = 0;

@@ -9,7 +9,7 @@
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s <template_file_path> [<query_file_path>] \n \
+        fprintf(stderr, "Usage: %s <template_file_path> [<query_file_path>] \n\
             [-x <if passed the cross RMSD will be calculated for all conformations of template file] \n\
             [-h <if passed H atoms will be used as well>] \n\
             [-b <if passed bond types will be used as well>] \n\
