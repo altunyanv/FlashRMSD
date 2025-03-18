@@ -16,7 +16,7 @@
  gcc DockRMSD.c -o DockRMSD -lm -O3
 */
 
-const int MAXBONDS = 6;        // Maximum number of bonds allowable on a single atom
+const int MAXBONDS = 15;        // Maximum number of bonds allowable on a single atom
 const int MAXLINELENGTH = 150; // Maximum length (in characters) of a line in a mol2 file
 const int MAXBONDSTRING = 32;   // Maximum length (in characters) of a bond string in a mol2 file
 const double MAXMAPCOUNT = 0;  // Maximum amount of possible mappings before symmetry heuristic is used
@@ -359,8 +359,8 @@ int grabAtomCount(FILE *mol2, int hflag)
       countflag = 1;
       continue;
     }
-    if (!strcmp(line, "@<TRIPOS>BOND\n"))
-    {
+    if (!strncmp(line, "@<TRIPOS>", 9) && countflag)
+    { // If we reach a new section and have already read atoms, break
       countflag = 0;
       break;
     }
@@ -492,15 +492,7 @@ int readMol2Blocks(char ****atoms, double ****coords, char *****bonds, int ***nu
       while (fgets(line, MAXLINELENGTH, mol2) != NULL) {
           if (line[0] == '@') {
               /* If we see a new section header, check if it is the BOND section. */
-              if (strncmp(line, "@<TRIPOS>BOND", 13) == 0) {
-                  break;
-              } else {
-                  /* Otherwise, we assume the block is done and this line is the header of the next block.
-                   * Copy it into headerLine and break.
-                   */
-                  strcpy(headerLine, line);
-                  break;
-              }
+              break;
           }
           if (strlen(line) < 2)
               continue; /* Skip blank lines */
@@ -533,6 +525,13 @@ int readMol2Blocks(char ****atoms, double ****coords, char *****bonds, int ***nu
           }
       }
 
+      if (strncmp(line, "@<TRIPOS>BOND", 13) != 0) {
+        while (fgets(line, MAXLINELENGTH, mol2) != NULL) {
+            if (strncmp(line, "@<TRIPOS>BOND", 13) == 0)
+                break;
+        }
+      }
+
       /* The actual number of atoms stored */
       int actualAtomCount = i;
       atomCounts[blockCount - 1] = actualAtomCount;
@@ -542,7 +541,6 @@ int readMol2Blocks(char ****atoms, double ****coords, char *****bonds, int ***nu
           /* Read bond lines until a line starting with '@' is encountered (or EOF) */
           while (fgets(line, MAXLINELENGTH, mol2) != NULL) {
               if (line[0] == '@') {
-                  /* This line will be treated as the next block’s header */
                   strcpy(headerLine, line);
                   file_end = 0;
                   break;
@@ -607,6 +605,7 @@ void readMol2(char **atoms, double **coords, char ***bonds, int *nums, FILE *mol
   int atomnums[atomcount]; // Keeps track of all non-H atom numbers for bond reading
   int i = 0;
   int sectionflag = 0; // Value is 1 when reading atoms, 2 when reading bonds, 0 before atoms, >2 after bonds
+  int tripos_mol_read = 0;
   while (fgets(line, MAXLINELENGTH, mol2) != NULL)
   {
     if (strlen(line) < 2)
@@ -618,9 +617,24 @@ void readMol2(char **atoms, double **coords, char ***bonds, int *nums, FILE *mol
       line[strlen(line) - 2] = '\n';
       line[strlen(line) - 1] = '\0';
     }
-    if (!strcmp(line, "@<TRIPOS>ATOM\n") || (sectionflag && line[0] == '@'))
+    if (!strncmp(line, "@<TRIPOS>MOLECULE", 17))
+    { // If we reach a new molecule header, reset the section flag
+      if (tripos_mol_read) break;
+      tripos_mol_read = 1;
+      sectionflag = 0;
+      continue;
+    }
+    else if (!strncmp(line, "@<TRIPOS>ATOM", 13)) 
     {
-      sectionflag++;
+      sectionflag = 1;
+    } 
+    else if (!strncmp(line, "@<TRIPOS>BOND", 13))
+    {
+      sectionflag = 2;
+    } 
+    else if (!strncmp(line, "@<TRIPOS>", 9))
+    { // If we reach a new section and have already read atoms, break
+      sectionflag = 0;
     }
     else if (sectionflag == 1)
     { // Reading in atoms and coordinates
@@ -1140,6 +1154,26 @@ double assignAtoms(char **tempatom, char ***tempbond, char **queryatom, char ***
     printf("No valid mapping exists\n");
     return DBL_MAX;
   }
+
+  if (!simpleflag)
+  {
+    printf("Calculated Docking RMSD: %.3f\n\n", bestrmsd);
+    printf("Total # of Possible Mappings: %.0f\n", possiblemaps);
+    printf("Optimal mapping (First file -> Second file, * indicates correspondence is not one-to-one):\n");
+    for (i = 0; i < atomcount; i++)
+    {
+      printf("%s%3d -> %s%3d ", *(queryatom + i), *(querynums + i), *(tempatom + *(bestassign + i)), *(tempnums + *(bestassign + i)));
+      if (*(querynums + i) == *(tempnums + *(bestassign + i)))
+      {
+        printf("\n");
+      }
+      else
+      {
+        printf("*\n");
+      }
+    }
+  }
+  
 
   free(assign);
   free(bestassign);
