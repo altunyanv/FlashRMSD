@@ -23,4 +23,9 @@ int get_bonded_atom_id(int);
 int compare_ints(const void*, const void*);
 int check_array_unordered_identity(int, int*, int*);
 
+void swap(int*, int*);
+void reverse_subarray(int*, int, int);
+int next_permutation(int*, int);
+double get_sq_distance(double*, int, double*, int);
+
 #endif // COMMON_H

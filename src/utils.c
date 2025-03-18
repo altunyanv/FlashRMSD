@@ -105,8 +105,6 @@ double** get_candidate_squared_distances(int num_atoms, double* coordinates_1, d
         
         if (!candidate_distances[i]) { fprintf(stderr, "Memory allocation failed for candidate_distances[%d].\n", i); return NULL; }
 
-        candidate_distances[i][0] = num_candidates;
-
         for (int j = 1; j <= num_candidates; j++) {
             int atom_id_1 = i, atom_id_2 = candidate_data[i][j];
             double dx = coordinates_1[3 * atom_id_1] - coordinates_2[3 * atom_id_2];

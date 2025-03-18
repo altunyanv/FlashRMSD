@@ -10,6 +10,7 @@
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         fprintf(stderr, "Usage: %s <template_file_path> [<query_file_path>] \n\
+            [-n <if passed naive version of algorithm will be run] \n\
             [-x <if passed the cross RMSD will be calculated for all conformations of template file] \n\
             [-h <if passed H atoms will be used as well>] \n\
             [-b <if passed bond types will be used as well>] \n\
@@ -32,6 +33,7 @@ int main(int argc, char* argv[]) {
         query_file_path = argv[argi++];
     }
 
+    int naive_rmsd = 0;
     int cross_rmsd = 0;
     int read_hydrogens = 0;
     int read_bonds = 0;
@@ -39,7 +41,8 @@ int main(int argc, char* argv[]) {
     int print_assignments = 0;
 
     for (; argi < argc; ++argi) {
-        if      (strcmp(argv[argi], "-x") == 0) cross_rmsd = 1;
+        if      (strcmp(argv[argi], "-n") == 0) naive_rmsd = 1;
+        else if (strcmp(argv[argi], "-x") == 0) cross_rmsd = 1;
         else if (strcmp(argv[argi], "-h") == 0) read_hydrogens = 1;
         else if (strcmp(argv[argi], "-b") == 0) read_bonds = 1;
         else if (strcmp(argv[argi], "-v") == 0) verbosity = 1;
@@ -66,8 +69,9 @@ int main(int argc, char* argv[]) {
         start = clock();
 
         for (int i = 0; i < conf_count; ++i) {
+            rmsd_table[i * conf_count + i] = 0.0;
             for (int j = i + 1; j < conf_count; ++j) {
-                double rmsd_value = rmsd(mol_data + i, mol_data + j, best_assignment);
+                double rmsd_value = naive_rmsd ? rmsd_naive(mol_data + i, mol_data + j, best_assignment) : rmsd(mol_data + i, mol_data + j, best_assignment);
                 rmsd_table[i * conf_count + j] = rmsd_value;
                 rmsd_table[j * conf_count + i] = rmsd_value;
             }
@@ -103,7 +107,7 @@ int main(int argc, char* argv[]) {
                 continue;
             }
 
-            double best_rmsd = rmsd(template_mol_data, mol_data + i, best_assignment);
+            double best_rmsd = naive_rmsd ? rmsd_naive(template_mol_data, mol_data + i, best_assignment) : rmsd(template_mol_data, mol_data + i, best_assignment);
 
             end = clock();
 

@@ -34,3 +34,49 @@ int check_array_unordered_identity(int num_atoms, int* arr1, int* arr2) {
     return 1;
 }
 
+void swap(int *a, int *b) {
+    int temp = *a;
+    *a = *b;
+    *b = temp;
+}
+
+void reverse_subarray(int arr[], int start, int end) {
+    while (start < end) {
+        swap(&arr[start], &arr[end]);
+        start++;
+        end--;
+    }
+}
+
+int next_permutation(int arr[], int n) {
+    if (n <= 1) return 0;
+
+    int i = n - 2;
+    while (i >= 0 && arr[i] >= arr[i + 1]) {
+        i--;
+    }
+
+    if (i < 0) {
+        reverse_subarray(arr, 0, n - 1);
+        return 0;
+    }
+
+    int j = n - 1;
+    while (arr[j] <= arr[i]) {
+        j--;
+    }
+
+    swap(&arr[i], &arr[j]);
+
+    reverse_subarray(arr, i + 1, n - 1);
+
+    return 1;
+}
+
+double get_sq_distance(double* coords1, int id1, double* coords2, int id2) {
+    double dx = coords1[3 * id1] - coords2[3 * id2];
+    double dy = coords1[3 * id1 + 1] - coords2[3 * id2 + 1];
+    double dz = coords1[3 * id1 + 2] - coords2[3 * id2 + 2];
+
+    return dx * dx + dy * dy + dz * dz;
+}

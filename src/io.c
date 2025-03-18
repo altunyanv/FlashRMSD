@@ -52,10 +52,25 @@ int read_sdf_block_from_file_ptr(FILE* infile, MolecularData* mol_data, int read
     if (!fgets(line, sizeof(line), infile)) return handle_error("Unexpected end of file while reading counts line.", infile);
 
     int num_atoms_total = 0, num_bonds_total = 0, chiral_flag = 0;
-    char version[7] = "";
 
     // Parse counts line
-    if (sscanf(line, "%3d%3d%*3d%*3d%*3d%3d%*10c%6s", &num_atoms_total, &num_bonds_total, &chiral_flag, version) < 2) return handle_error("Failed to parse counts line.", infile);
+    char buf_atoms[4], buf_bonds[4], buf_chiral[4], version[7];
+
+    // Ensure line is at least 39 characters to safely read
+    if (strlen(line) < 39)
+        return handle_error("Line too short.", infile);
+
+    // Copy substrings explicitly
+    memcpy(buf_atoms,  &line[0], 3); buf_atoms[3] = '\0';
+    memcpy(buf_bonds,  &line[3], 3); buf_bonds[3] = '\0';
+    memcpy(buf_chiral, &line[12],3); buf_chiral[3] = '\0';
+    memcpy(version,    &line[33],6); version[6] = '\0';
+
+    // Parse integers from substrings
+    if (sscanf(buf_atoms, "%d", &num_atoms_total) != 1 ||
+        sscanf(buf_bonds, "%d", &num_bonds_total) != 1 ||
+        sscanf(buf_chiral, "%d", &chiral_flag) != 1)
+        return handle_error("Failed to parse counts.", infile);
 
     int* atomic_numbers_all = (int*)malloc(num_atoms_total * sizeof(int));
     double* coordinates_all = (double*)malloc(num_atoms_total * 3 * sizeof(double));
