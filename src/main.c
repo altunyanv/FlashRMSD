@@ -9,9 +9,9 @@
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s <template_file_path> [<query_file_path>] \n\
+        fprintf(stderr, "Usage: %s <query_file_path> [<template_file_path>] \n\
             [-n <if passed naive version of algorithm will be run] \n\
-            [-x <if passed the cross RMSD will be calculated for all conformations of template file] \n\
+            [-x <if passed the cross RMSD will be calculated for all conformations of query file] \n\
             [-h <if passed H atoms will be used as well>] \n\
             [-b <if passed bond types will be used as well>] \n\
             [-v <if passed verbosity is set to true (i.e. runtimes and additional comments)>] \n\
@@ -21,16 +21,16 @@ int main(int argc, char* argv[]) {
 
     int argi = 1;    
     if (argv[argi][0] == '-') {
-        fprintf(stderr, "Expected template file path, found option '%s'\n", argv[argi]);
+        fprintf(stderr, "Expected query file path, found option '%s'\n", argv[argi]);
         return 1;
     }
 
-    const char* template_file_path = argv[argi++];
-    const char* query_file_path = NULL;
+    const char* query_file_path = argv[argi++];
+    const char* template_file_path = NULL;
 
-    // Optional query file
+    // Optional template file
     if (argi < argc && argv[argi][0] != '-') {
-        query_file_path = argv[argi++];
+        template_file_path = argv[argi++];
     }
 
     int naive_rmsd = 0;
@@ -56,7 +56,7 @@ int main(int argc, char* argv[]) {
     if (cross_rmsd) {
         MolecularData* mol_data = (MolecularData*)malloc(MAX_CONF_COUNT * sizeof(MolecularData));
 
-        int conf_count = read_file(template_file_path, mol_data, read_hydrogens, read_bonds, MAX_CONF_COUNT);
+        int conf_count = read_file(query_file_path, mol_data, read_hydrogens, read_bonds, MAX_CONF_COUNT);
         if (!conf_count) {
             fprintf(stderr, "Failed to read query file.\n");
             exit(1);
