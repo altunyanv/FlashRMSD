@@ -1,0 +1,12 @@
+This directory contains both the original source code of the DockRMSD project and a modified version created for benchmarking purposes.
+
+The original DockRMSD tool was developed by the Zhang Lab (https://zhanglab.ccmb.med.umich.edu/DockRMSD/) and is licensed under the GNU General Public License (GPL), version 3 or (at your option) any later version.
+
+Both the original and modified versions provided here are distributed under the terms of the GNU GPL. The modified version, referred to as **DockRMSDExt**, includes changes made by **Vahagn Altunyan** in 2025 to enable cross-RMSD functionality and improve input compatibility. All modifications are clearly marked in the relevant source files.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+For full license text, see: https://www.gnu.org/licenses/gpl-3.0.en.html
+
+© Original authors of DockRMSD and contributors.  
+Modifications © Vahagn Altunyan, 2025.
