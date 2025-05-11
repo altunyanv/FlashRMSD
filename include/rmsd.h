@@ -16,7 +16,7 @@
 int check_for_basic_matches(MolecularData*, MolecularData*);
 double rmsd(MolecularData*, MolecularData*, int*);
 
-double rmsd_naive(MolecularData*, MolecularData*, int*);
-void rmsd_naive_rec_helper(MolecularData*, MolecularData*, int**, double**, int*, double, int*, double*, int, int, int**);
+double rmsd_naive(MolecularData*, MolecularData*, int*, int);
+void rmsd_naive_rec_helper(MolecularData*, MolecularData*, int**, double**, int*, double, int, int*, double*, int, int, int**);
 
 #endif // RMSD_H

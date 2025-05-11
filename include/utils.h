@@ -46,4 +46,11 @@ double search_assignment(const SearchData*, int*);
 double search_assignment_recurse(const SearchData*, int*);
 void search_assignment_recurse_helper(const SearchData*, RecursionState*, int, int*, int);
 
+void center_by_origin(int, double*);
+extern void dgesvd_(char*, char*, int*, int*,
+                    double*, int*, double*,
+                    double*, int*, double*, int*,
+                    double*, int*, int*);
+double kabsch_squared_dist_sum(int, const double*, const double*, int*);
+
 #endif

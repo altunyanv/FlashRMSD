@@ -473,3 +473,81 @@ void search_assignment_recurse_helper(const SearchData* data, RecursionState* st
         state->used_mask_1[id] = 0;
     }
 }
+
+void center_by_origin(int n, double *coordinates)
+{
+    double center[3] = {0.0, 0.0, 0.0};
+    for (int i = 0; i < n; ++i) {
+        center[0] += coordinates[3*i    ];
+        center[1] += coordinates[3*i + 1];
+        center[2] += coordinates[3*i + 2];
+    }
+    center[0] /= n; center[1] /= n; center[2] /= n;
+
+    for (int i = 0; i < n; ++i) {
+        coordinates[3*i    ] -= center[0];
+        coordinates[3*i + 1] -= center[1];
+        coordinates[3*i + 2] -= center[2];
+    }
+}
+
+double kabsch_squared_dist_sum(int n, const double *P, const double *Q, int *assignment)
+{
+    /* ---- 1. build 3×3 covariance matrix C = Σ P_i Q_iᵀ ------------ */
+    double C[9] = {0.0};                       /* column‑major (Fortran) */
+    for (int i = 0; i < n; ++i) {
+        const int j = assignment[i];
+        const double px = P[3*i    ], py = P[3*i + 1], pz = P[3*i + 2];
+        const double qx = Q[3*j    ], qy = Q[3*j + 1], qz = Q[3*j + 2];
+
+        C[0] += px*qx;  C[3] += px*qy;  C[6] += px*qz;   /* first row */
+        C[1] += py*qx;  C[4] += py*qy;  C[7] += py*qz;   /* second row */
+        C[2] += pz*qx;  C[5] += pz*qy;  C[8] += pz*qz;   /* third row */
+    }
+
+    /* ---- 2. SVD of C: C = U Σ Vᵀ ---------------------------------- */
+    char jobu = 'A', jobvt = 'A';
+    int m = 3, ncol = 3, lda = 3, ldu = 3, ldvt = 3, info, lwork = -1;
+    double S[3], U[9], VT[9], work_query;
+
+    dgesvd_(&jobu, &jobvt, &m, &ncol,
+            C, &lda, S, U, &ldu, VT, &ldvt,
+            &work_query, &lwork, &info);
+
+    lwork = (int)work_query;
+    double *work = (double *)malloc(lwork * sizeof(double));
+    dgesvd_(&jobu, &jobvt, &m, &ncol,
+            C, &lda, S, U, &ldu, VT, &ldvt,
+            work, &lwork, &info);
+    free(work);
+    if (info) { fprintf(stderr, "Kabsch: SVD failed (info=%d)\n", info); exit(1); }
+
+    /* ---- 3. detect improper rotation and correct last column ------- */
+    double detU =  U[0]*(U[4]*U[8]-U[5]*U[7])
+                 - U[3]*(U[1]*U[8]-U[2]*U[7])
+                 + U[6]*(U[1]*U[5]-U[2]*U[4]);
+
+    double detV =  VT[0]*(VT[4]*VT[8]-VT[5]*VT[7])
+                 - VT[3]*(VT[1]*VT[8]-VT[2]*VT[7])
+                 + VT[6]*(VT[1]*VT[5]-VT[2]*VT[4]);
+
+    double d = (detU * detV < 0.0) ? -1.0 : 1.0;   /* reflection? */
+
+    /* ---- 4. compute trace(Σ') where Σ' has last singular value * d  */
+    const double trace_sigma = S[0] + S[1] + d * S[2];
+
+    /* ---- 5. RMSD^2 = (Σ|P|^2 + Σ|Q|^2 – 2·trace_sigma) / N -------- */
+    double sumP2 = 0.0, sumQ2 = 0.0;
+    for (int i = 0; i < n; ++i) {
+        const int j = assignment[i];
+
+        const double px = P[3*i    ], py = P[3*i + 1], pz = P[3*i + 2];
+        const double qx = Q[3*j    ], qy = Q[3*j + 1], qz = Q[3*j + 2];
+
+        sumP2 += px*px + py*py + pz*pz;
+        sumQ2 += qx*qx + qy*qy + qz*qz;
+    }
+
+    double res = (sumP2 + sumQ2 - 2.0 * trace_sigma);
+    return (res > 0.0) ? res : 0.0;   /* numerical guard */
+}

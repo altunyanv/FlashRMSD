@@ -11,6 +11,7 @@ int main(int argc, char* argv[]) {
     if (argc < 2) {
         fprintf(stderr, "Usage: %s <query_file_path> [<template_file_path>] \n\
             [-n <if passed naive version of algorithm will be run] \n\
+            [-m <if passed alongside with -n flag translation-rotational aligned RMSD will be calculated] \n\
             [-x <if passed the cross RMSD will be calculated for all conformations of query file] \n\
             [-h <if passed H atoms will be used as well>] \n\
             [-b <if passed bond types will be used as well>] \n\
@@ -34,6 +35,7 @@ int main(int argc, char* argv[]) {
     }
 
     int naive_rmsd = 0;
+    int minimize_rmsd = 0;
     int cross_rmsd = 0;
     int read_hydrogens = 0;
     int read_bonds = 0;
@@ -42,6 +44,7 @@ int main(int argc, char* argv[]) {
 
     for (; argi < argc; ++argi) {
         if      (strcmp(argv[argi], "-n") == 0) naive_rmsd = 1;
+        else if (strcmp(argv[argi], "-m") == 0) minimize_rmsd = 1;
         else if (strcmp(argv[argi], "-x") == 0) cross_rmsd = 1;
         else if (strcmp(argv[argi], "-h") == 0) read_hydrogens = 1;
         else if (strcmp(argv[argi], "-b") == 0) read_bonds = 1;
@@ -53,6 +56,8 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    if (!naive_rmsd)    minimize_rmsd = 0;
+
     if (cross_rmsd) {
         MolecularData* mol_data = (MolecularData*)malloc(MAX_CONF_COUNT * sizeof(MolecularData));
 
@@ -61,6 +66,10 @@ int main(int argc, char* argv[]) {
             fprintf(stderr, "Failed to read query file.\n");
             exit(1);
         }
+
+        if (minimize_rmsd)
+            for (int i = 0; i < conf_count; ++i)
+                center_by_origin(mol_data[i].num_atoms, mol_data[i].coordinates);
 
         int* best_assignment = (int*)malloc(mol_data->num_atoms * sizeof(int));
         double* rmsd_table = (double*)malloc(conf_count * conf_count * sizeof(double));
@@ -71,9 +80,14 @@ int main(int argc, char* argv[]) {
         for (int i = 0; i < conf_count; ++i) {
             rmsd_table[i * conf_count + i] = 0.0;
             for (int j = i + 1; j < conf_count; ++j) {
-                double rmsd_value = naive_rmsd ? rmsd_naive(mol_data + i, mol_data + j, best_assignment) : rmsd(mol_data + i, mol_data + j, best_assignment);
-                rmsd_table[i * conf_count + j] = rmsd_value;
-                rmsd_table[j * conf_count + i] = rmsd_value;
+                double best_rmsd = INFINITY;
+                if (naive_rmsd) {
+                    best_rmsd = rmsd_naive(mol_data + i, mol_data + j, best_assignment, minimize_rmsd);
+                } else {
+                    best_rmsd = rmsd(mol_data + i, mol_data + j, best_assignment);
+                }
+                rmsd_table[i * conf_count + j] = best_rmsd;
+                rmsd_table[j * conf_count + i] = best_rmsd;
             }
         }
 
@@ -93,6 +107,10 @@ int main(int argc, char* argv[]) {
         int total_conf_count = 0;
         MolecularData* mol_data = read_input_files(template_file_path, query_file_path, read_hydrogens, read_bonds, &total_conf_count);
 
+        if (minimize_rmsd)
+            for (int i = 0; i < total_conf_count; ++i)
+                center_by_origin(mol_data[i].num_atoms, mol_data[i].coordinates);
+
         MolecularData* template_mol_data = mol_data;
 
         int start, end;
@@ -107,7 +125,12 @@ int main(int argc, char* argv[]) {
                 continue;
             }
 
-            double best_rmsd = naive_rmsd ? rmsd_naive(template_mol_data, mol_data + i, best_assignment) : rmsd(template_mol_data, mol_data + i, best_assignment);
+            double best_rmsd = INFINITY;
+            if (naive_rmsd) {
+                best_rmsd = rmsd_naive(template_mol_data, mol_data + i, best_assignment, minimize_rmsd);
+            } else {
+                best_rmsd = rmsd(template_mol_data, mol_data + i, best_assignment);
+            }
 
             end = clock();
 

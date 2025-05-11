@@ -67,11 +67,14 @@ double rmsd(MolecularData* mol_data_1, MolecularData* mol_data_2, int* best_assi
 
 void rmsd_naive_rec_helper(MolecularData* mol_data_1, MolecularData* mol_data_2, 
                              int** candidate_data, double** candidate_squared_distances,
-                             int* current_assignment, double current_sum, 
+                             int* current_assignment, double current_sum, int minimize,
                              int* best_assignment, double* best_sum, 
                              int current_group, int group_count, int** groups) {
 
     if (current_group == group_count) {
+        if (minimize)
+            current_sum = kabsch_squared_dist_sum(mol_data_1->num_atoms, mol_data_1->coordinates, mol_data_2->coordinates, current_assignment);
+
         if (current_sum < *best_sum) {
             *best_sum = current_sum;
             memcpy(best_assignment, current_assignment, mol_data_1->num_atoms * sizeof(int));
@@ -138,7 +141,7 @@ void rmsd_naive_rec_helper(MolecularData* mol_data_1, MolecularData* mol_data_2,
 
         // Recursively call for the next group
         rmsd_naive_rec_helper(mol_data_1, mol_data_2, candidate_data, candidate_squared_distances,
-                              current_assignment, current_sum + group_sum, best_assignment, best_sum,
+                              current_assignment, current_sum + group_sum, minimize, best_assignment, best_sum,
                               current_group + 1, group_count, groups);
     } while (next_permutation(permutation, group_size));
 
@@ -149,7 +152,7 @@ void rmsd_naive_rec_helper(MolecularData* mol_data_1, MolecularData* mol_data_2,
     }
 }
 
-double rmsd_naive(MolecularData* mol_data_1, MolecularData* mol_data_2, int* best_assignment) {
+double rmsd_naive(MolecularData* mol_data_1, MolecularData* mol_data_2, int* best_assignment, int minimize) {
     // Check for basic matches
     if (!check_for_basic_matches(mol_data_1, mol_data_2)) { 
         fprintf(stderr, "Basic matches failed. Molecules are not isomorphic.\n"); return INFINITY; 
@@ -215,12 +218,14 @@ double rmsd_naive(MolecularData* mol_data_1, MolecularData* mol_data_2, int* bes
     }
 
     if (groups_count == 0) {
+        if (minimize)
+            current_sum = kabsch_squared_dist_sum(mol_data_1->num_atoms, mol_data_1->coordinates, mol_data_2->coordinates, current_assignment);
         best_rmsd = sqrt(current_sum / num_atoms);
         memcpy(best_assignment, current_assignment, num_atoms * sizeof(int));
     } else {
         double best_sum = INFINITY;
         rmsd_naive_rec_helper(mol_data_1, mol_data_2, candidate_data, candidate_squared_distances,
-                              current_assignment, current_sum, best_assignment, &best_sum,
+                              current_assignment, current_sum, minimize, best_assignment, &best_sum,
                               0, groups_count, groups);
         best_rmsd = sqrt(best_sum / num_atoms);
     }
