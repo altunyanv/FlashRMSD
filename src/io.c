@@ -40,167 +40,237 @@ int is_end_of_file(FILE *file) {
     return 1;
 }
 
-int read_sdf_block_from_file_ptr(FILE* infile, MolecularData* mol_data, int read_hydrogens, int read_bonds) {
+int read_sdf_block_from_file_ptr(FILE* infile, MolecularData* mol_data, int read_hydrogens, int read_bonds)
+{
     char line[256];
 
-    // Skip the first three header lines
+    /* 1) Skip the three header lines */
     if (!fgets(line, sizeof(line), infile)) return 0;
-    if (!fgets(line, sizeof(line), infile)) return handle_error("Unexpected end of file while reading header line 2.", infile);
-    if (!fgets(line, sizeof(line), infile)) return handle_error("Unexpected end of file while reading header line 3.", infile);
+    if (!fgets(line, sizeof(line), infile)) return handle_error(
+            "Unexpected end of file while reading header line 2.", infile);
+    if (!fgets(line, sizeof(line), infile)) return handle_error(
+            "Unexpected end of file while reading header line 3.", infile);
 
-    // Read counts line
-    if (!fgets(line, sizeof(line), infile)) return handle_error("Unexpected end of file while reading counts line.", infile);
+    /* 2) Peek at the next line to decide V2000 vs. V3000 (MDL CTAB) */
+    if (!fgets(line, sizeof(line), infile))
+        return handle_error("Unexpected end of file while reading counts.", infile);
 
-    int num_atoms_total = 0, num_bonds_total = 0, chiral_flag = 0;
+    int use_v3000 = (strstr(line, "V3000") != NULL);
 
-    // Parse counts line
-    char buf_atoms[4], buf_bonds[4], buf_chiral[4], version[7];
+    int num_atoms_total = 0, num_bonds_total = 0;
+    /* for V2000 we already have line; for V3000 we must skip to "M  V30 COUNTS" */
+    if (use_v3000) {
+        /* read V3000 COUNTS line */
+        while (!strstr(line, "M  V30 COUNTS")) {
+            if (!fgets(line, sizeof(line), infile))
+                return handle_error("Failed to find V3000 COUNTS.", infile);
+        }
+        /* format: "M  V30 COUNTS natoms nbonds ..." */
+        if (sscanf(line+14, "%d %d", &num_atoms_total, &num_bonds_total) < 2)
+            return handle_error("Failed to parse V3000 COUNTS.", infile);
+    } else {
+        /* V2000, parse fixed columns */
+        char buf_atoms[4]  = {0},
+             buf_bonds[4]  = {0};
+        if ((int)strlen(line) < 6)
+            return handle_error("Counts line too short.", infile);
+        memcpy(buf_atoms, line+0, 3);
+        memcpy(buf_bonds, line+3, 3);
+        if (sscanf(buf_atoms, "%d", &num_atoms_total) != 1 ||
+            sscanf(buf_bonds, "%d", &num_bonds_total) != 1)
+            return handle_error("Failed to parse V2000 counts.", infile);
+    }
 
-    // Ensure line is at least 39 characters to safely read
-    if (strlen(line) < 39)
-        return handle_error("Line too short.", infile);
+    /* allocate workspace */
+    int*    atomic_numbers_all = malloc(num_atoms_total * sizeof(int));
+    double* coordinates_all    = malloc(num_atoms_total * 3 * sizeof(double));
+    int*    atom_index_map     = malloc(num_atoms_total * sizeof(int));
+    if (!atomic_numbers_all || !coordinates_all || !atom_index_map)
+        return handle_error("Memory allocation failed.", infile);
 
-    // Copy substrings explicitly
-    memcpy(buf_atoms,  &line[0], 3); buf_atoms[3] = '\0';
-    memcpy(buf_bonds,  &line[3], 3); buf_bonds[3] = '\0';
-    memcpy(buf_chiral, &line[12],3); buf_chiral[3] = '\0';
-    memcpy(version,    &line[33],6); version[6] = '\0';
+    int num_atoms = 0;
 
-    // Parse integers from substrings
-    if (sscanf(buf_atoms, "%d", &num_atoms_total) != 1 ||
-        sscanf(buf_bonds, "%d", &num_bonds_total) != 1 ||
-        sscanf(buf_chiral, "%d", &chiral_flag) != 1)
-        return handle_error("Failed to parse counts.", infile);
+    /* 3) Read atom block */
+    if (use_v3000) {
+        /* skip to "M  V30 BEGIN ATOM" */
+        while (!strstr(line, "M  V30 BEGIN ATOM")) {
+            if (!fgets(line, sizeof(line), infile))
+                return handle_error("Failed to find V3000 BEGIN ATOM.", infile);
+        }
+        /* read until "M  V30 END ATOM" */
+        while (fgets(line, sizeof(line), infile)) {
+            if (strstr(line, "M  V30 END ATOM")) break;
+            /* parse: M  V30 <id> <x> <y> <z> <symbol> ... */
+            int    idx;
+            double x, y, z;
+            char   sym[16];
+            if (sscanf(line+6, "%d %s %lf %lf %lf", &idx, sym, &x, &y, &z) < 5)
+                return handle_error("Failed to parse V3000 atom.", infile);
+            int Z = get_atomic_number(sym);
+            atom_index_map[idx-1] = (Z==1 && !read_hydrogens) ? -1 : num_atoms;
+            if (!(Z==1 && !read_hydrogens)) {
+                atomic_numbers_all[num_atoms] = Z;
+                coordinates_all[3*num_atoms+0] = x;
+                coordinates_all[3*num_atoms+1] = y;
+                coordinates_all[3*num_atoms+2] = z;
+                ++num_atoms;
+            }
+        }
+    } else {
+        /* V2000 atom block: next num_atoms_total lines */
+        for (int i = 0; i < num_atoms_total; ++i) {
+            if (!fgets(line, sizeof(line), infile))
+                return handle_error("Unexpected EOF in atom block.", infile);
 
-    int* atomic_numbers_all = (int*)malloc(num_atoms_total * sizeof(int));
-    double* coordinates_all = (double*)malloc(num_atoms_total * 3 * sizeof(double));
-    int* atom_index_map = (int*)malloc(num_atoms_total * sizeof(int));
+            char xs[11]={0}, ys[11]={0}, zs[11]={0}, symb[4]={0};
+            strncpy(xs, line+0, 10);
+            strncpy(ys, line+10,10);
+            strncpy(zs, line+20,10);
+            strncpy(symb,line+31,3);
 
-    if (!atomic_numbers_all || !coordinates_all || !atom_index_map) return handle_error("Memory allocation failed for atomic numbers/coordinates/atom index map.", infile);
+            double x = atof(xs), y = atof(ys), z = atof(zs);
+            /* trim symb */
+            int s = 0, l = strlen(symb);
+            while (l>0 && isspace(symb[l-1])) symb[--l]=0;
+            while (isspace(symb[s])) ++s;
 
-    int num_atoms = 0; // Number of atoms after possibly excluding hydrogens
-
-    // Read atom block
-    for (int i = 0; i < num_atoms_total; ++i) {
-        if (!fgets(line, sizeof(line), infile)) return handle_error("Unexpected end of file while reading atom block.", infile);
-
-        char x_str[11] = {0}, y_str[11] = {0}, z_str[11] = {0}, atom_symbol[4] = {0};
-        double* coordinates_shifted = coordinates_all + 3 * num_atoms;
-        strncpy(x_str, line + 0, 10);   
-        strncpy(y_str, line + 10, 10); 
-        strncpy(z_str, line + 20, 10); 
-        strncpy(atom_symbol, line + 31, 3);
-        
-        // Convert coordinates to double
-        coordinates_shifted[0] = atof(x_str);
-        coordinates_shifted[1] = atof(y_str);
-        coordinates_shifted[2] = atof(z_str);
-
-        // Trim leading and trailing spaces
-        int start = 0, len = strlen(atom_symbol);
-        while (len > 0 && isspace(atom_symbol[len - 1])) atom_symbol[--len] = '\0';
-        while (isspace(atom_symbol[start])) ++start;
-        
-        // Map atom symbol to atomic number
-        int atomic_number = get_atomic_number(atom_symbol + start);
-
-        // Decide whether to include this atom
-        if (!read_hydrogens && atomic_number == 1) { atom_index_map[i] = -1; continue; }
-
-        // Store atom data
-        atomic_numbers_all[num_atoms] = atomic_number;
-        atom_index_map[i] = num_atoms; // Map old index to new index
-        num_atoms++;
+            int Z = get_atomic_number(symb+s);
+            atom_index_map[i] = (Z==1 && !read_hydrogens) ? -1 : num_atoms;
+            if (!(Z==1 && !read_hydrogens)) {
+                atomic_numbers_all[num_atoms] = Z;
+                coordinates_all[3*num_atoms+0]=x;
+                coordinates_all[3*num_atoms+1]=y;
+                coordinates_all[3*num_atoms+2]=z;
+                ++num_atoms;
+            }
+        }
     }
 
     mol_data->num_atoms = num_atoms;
+    mol_data->atomic_numbers =
+        malloc(num_atoms * sizeof(int));
+    mol_data->coordinates =
+        malloc(num_atoms * 3 * sizeof(double));
+    if (!mol_data->atomic_numbers || !mol_data->coordinates)
+        return handle_error("Memory allocation failed in mol_data.", infile);
 
-    // Allocate memory for atomic_numbers and coordinates in mol_data
-    mol_data->atomic_numbers = (int*)malloc(num_atoms * sizeof(int));
-    mol_data->coordinates = (double*)malloc(num_atoms * 3 * sizeof(double));
-    if (!mol_data->atomic_numbers || !mol_data->coordinates) return handle_error("Memory allocation failed for atomic numbers/coordinates in mol_data.", infile);
+    memcpy(mol_data->atomic_numbers,
+           atomic_numbers_all,
+           num_atoms * sizeof(int));
+    memcpy(mol_data->coordinates,
+           coordinates_all,
+           num_atoms * 3 * sizeof(double));
+    free(atomic_numbers_all);
+    free(coordinates_all);
 
-    // Copy the included atoms to mol_data
-    memcpy(mol_data->atomic_numbers, atomic_numbers_all, num_atoms * sizeof(int));
-    memcpy(mol_data->coordinates, coordinates_all, num_atoms * 3 * sizeof(double));
+    /* 4) Build adjacency list temp */
+    int** adjacency_list_temp = calloc(num_atoms, sizeof(int*));
+    int*  adjacency_sizes     = calloc(num_atoms, sizeof(int));
+    if (!adjacency_list_temp || !adjacency_sizes)
+        return handle_error("Memory allocation failed for adjacency.", infile);
 
-    free(atomic_numbers_all);   free(coordinates_all);
-
-    // Temporary storage for adjacency list
-    int** adjacency_list_temp = (int**)malloc(num_atoms * sizeof(int*));
-    int* adjacency_sizes = (int*)malloc(num_atoms * sizeof(int));
-
-    if (!adjacency_list_temp || !adjacency_sizes) return handle_error("Memory allocation failed for adjacency list.", infile);
-
-    // Initialize adjacency list pointers to NULL
-    for (int i = 0; i < num_atoms; ++i) { adjacency_list_temp[i] = NULL; adjacency_sizes[i] = 0; }
-
-    // Read bond block
-    for (int i = 0; i < num_bonds_total; ++i) {
-        if (!fgets(line, sizeof(line), infile)) return handle_error("Unexpected end of file while reading bond block.", infile);
-
-        char atom1_str[4] = {0}, atom2_str[4] = {0}, bond_type[4] = {0};  
-        int atom1, atom2, bond_type_int;      
-        
-        strncpy(atom1_str, line, 3);        atom1 = atoi(atom1_str);
-        strncpy(atom2_str, line + 3, 3);    atom2 = atoi(atom2_str);
-
-        // Trim leading and trailing spaces, because of length
-        strncpy(bond_type, line + 6, 3);
-        int start = 0, len = strlen(bond_type);
-        while (len > 0 && isspace(bond_type[len - 1])) bond_type[--len] = '\0';
-        while (isspace(bond_type[start])) ++start;
-
-        bond_type_int = read_bonds * get_bond_number(bond_type + start);
-        
-        int new_idx1 = atom_index_map[atom1 - 1],
-            new_idx2 = atom_index_map[atom2 - 1];
-
-        // If either atom is excluded, skip this bond
-        if (new_idx1 == -1 || new_idx2 == -1)   continue;
-
-        // Increment adjacency sizes
-        adjacency_sizes[new_idx1]++;    adjacency_sizes[new_idx2]++;
-
-        // Reallocate adjacency lists
-        adjacency_list_temp[new_idx1] = (int*)realloc(adjacency_list_temp[new_idx1], adjacency_sizes[new_idx1] * sizeof(int));
-        adjacency_list_temp[new_idx2] = (int*)realloc(adjacency_list_temp[new_idx2], adjacency_sizes[new_idx2] * sizeof(int));
-
-        if (!adjacency_list_temp[new_idx1] || !adjacency_list_temp[new_idx2]) return handle_error("Memory allocation failed for adjacency list.", infile);
-
-        // Add each atom to the other's adjacency list
-        adjacency_list_temp[new_idx1][adjacency_sizes[new_idx1] - 1] = (new_idx2 | (bond_type_int << BOND_TYPE_SHIFT));
-        adjacency_list_temp[new_idx2][adjacency_sizes[new_idx2] - 1] = (new_idx1 | (bond_type_int << BOND_TYPE_SHIFT));
+    /* 5) Read bond block */
+    if (use_v3000) {
+        /* skip to "M  V30 BEGIN BOND" */
+        while (!strstr(line, "M  V30 BEGIN BOND")) {
+            if (!fgets(line, sizeof(line), infile))
+                return handle_error("Failed to find V3000 BEGIN BOND.", infile);
+        }
+        /* read until "M  V30 END BOND" */
+        while (fgets(line, sizeof(line), infile)) {
+            if (strstr(line, "M  V30 END BOND")) break;
+            /* parse: M  V30 <id> <a1> <a2> <type> ... */
+            int    bidx, a1, a2;
+            char   btype[8];
+            if (sscanf(line+6, "%d %s %d %d",
+                       &bidx,btype,&a1,&a2) < 4)
+                return handle_error("Failed to parse V3000 bond.", infile);
+            int bt = read_bonds ? get_bond_number(btype) : 0;
+            int i1 = atom_index_map[a1-1],
+                i2 = atom_index_map[a2-1];
+            if (i1<0||i2<0) continue;
+            /* append to temp lists */
+            adjacency_list_temp[i1] = realloc(
+                adjacency_list_temp[i1],
+                ++adjacency_sizes[i1] * sizeof(int));
+            adjacency_list_temp[i2] = realloc(
+                adjacency_list_temp[i2],
+                ++adjacency_sizes[i2] * sizeof(int));
+            adjacency_list_temp[i1][adjacency_sizes[i1]-1] =
+                i2 | (bt<<BOND_TYPE_SHIFT);
+            adjacency_list_temp[i2][adjacency_sizes[i2]-1] =
+                i1 | (bt<<BOND_TYPE_SHIFT);
+        }
+    } else {
+        /* V2000 bond block: next num_bonds_total lines */
+        for (int i = 0; i < num_bonds_total; ++i) {
+            if (!fgets(line, sizeof(line), infile))
+                return handle_error("Unexpected EOF in bond block.", infile);
+            char a1s[4]={0}, a2s[4]={0}, bt[4]={0};
+            strncpy(a1s,line+0,3);
+            strncpy(a2s,line+3,3);
+            strncpy(bt, line+6,3);
+            int a1=atoi(a1s), a2=atoi(a2s);
+            /* trim bt */
+            int si=0, li=strlen(bt);
+            while (li>0&&isspace(bt[li-1])) bt[--li]=0;
+            while (isspace(bt[si])) ++si;
+            int bti = read_bonds ? get_bond_number(bt+si) : 0;
+            int i1 = atom_index_map[a1-1],
+                i2 = atom_index_map[a2-1];
+            if (i1<0||i2<0) continue;
+            adjacency_list_temp[i1] = realloc(
+                adjacency_list_temp[i1],
+                ++adjacency_sizes[i1] * sizeof(int));
+            adjacency_list_temp[i2] = realloc(
+                adjacency_list_temp[i2],
+                ++adjacency_sizes[i2] * sizeof(int));
+            adjacency_list_temp[i1][adjacency_sizes[i1]-1] =
+                i2 | (bti<<BOND_TYPE_SHIFT);
+            adjacency_list_temp[i2][adjacency_sizes[i2]-1] =
+                i1 | (bti<<BOND_TYPE_SHIFT);
+        }
     }
 
     free(atom_index_map);
 
-    // Build adjacency_list in MolecularData
-    mol_data->adjacency_list = (int**)malloc(num_atoms * sizeof(int*));
-    if (!mol_data->adjacency_list) return handle_error("Memory allocation failed for adjacency list in mol_data.", infile);
-
+    /* 6) Fold temp adjacency into mol_data */
+    mol_data->adjacency_list =
+        malloc(num_atoms * sizeof(int*));
+    if (!mol_data->adjacency_list)
+        return handle_error("Memory allocation failed.", infile);
     for (int i = 0; i < num_atoms; ++i) {
-        int num_neighbors = adjacency_sizes[i];
-        mol_data->adjacency_list[i] = (int*)malloc((num_neighbors + 1) * sizeof(int)); // First element is num_neighbors
-        if (!mol_data->adjacency_list[i]) return handle_error("Memory allocation failed for adjacency list in mol_data.", infile);
-
-        mol_data->adjacency_list[i][0] = num_neighbors;
-        memcpy(mol_data->adjacency_list[i] + 1, adjacency_list_temp[i], num_neighbors * sizeof(int));
-
+        int n = adjacency_sizes[i];
+        mol_data->adjacency_list[i] =
+            malloc((n+1) * sizeof(int));
+        if (!mol_data->adjacency_list[i])
+            return handle_error("Memory allocation failed.", infile);
+        mol_data->adjacency_list[i][0] = n;
+        memcpy(mol_data->adjacency_list[i]+1,
+               adjacency_list_temp[i],
+               n * sizeof(int));
         free(adjacency_list_temp[i]);
     }
+    free(adjacency_list_temp);
+    free(adjacency_sizes);
 
-    // Free temporary adjacency sizes and list
-    free(adjacency_list_temp);  free(adjacency_sizes);
-
-    mol_data->layer_data = (int*)malloc(num_atoms * sizeof(int));
-    if (!mol_data->layer_data) return handle_error("Memory allocation failed for layer data.", infile);
-
-    if (!generate_layer_data(mol_data->num_atoms, mol_data->atomic_numbers, mol_data->adjacency_list, mol_data->layer_data))
+    /* 7) Layer data */
+    mol_data->layer_data = malloc(num_atoms * sizeof(int));
+    if (!mol_data->layer_data)
+        return handle_error("Memory allocation failed.", infile);
+    if (!generate_layer_data(mol_data->num_atoms,
+                             mol_data->atomic_numbers,
+                             mol_data->adjacency_list,
+                             mol_data->layer_data))
         return handle_error("Failed to generate layer data.", infile);
-    
-    while (fgets(line, sizeof(line), infile))
-        if (strstr(line, "$$$$")) break;
+
+    /* 8) Consume record terminator */
+    while (fgets(line, sizeof(line), infile)) {
+        if (strstr(line, "$$$$"))  /* MDL Molfile end */
+        {
+            break;
+        }
+    }
 
     return 1;
 }
