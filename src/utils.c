@@ -122,7 +122,14 @@ double** get_candidate_squared_distances(int num_atoms, double* coordinates_1, d
 
 
 
-const SearchData* init_search_data(int num_atoms, int** candidates, double** squared_distances, int** adjacency_list_1, int** adjacency_list_2) {
+const SearchData* init_search_data(int num_atoms, 
+                                   int** candidates, 
+                                   double** squared_distances, 
+                                   double* coordinates_1,
+                                   double* coordinates_2,
+                                   int** adjacency_list_1, 
+                                   int** adjacency_list_2,
+                                   int minimize) {
     SearchData* data = (SearchData*)malloc(sizeof(SearchData));
 
     if (!data) { fprintf(stderr, "Memory allocation failed for SearchData.\n"); return NULL; }
@@ -130,8 +137,11 @@ const SearchData* init_search_data(int num_atoms, int** candidates, double** squ
     data->num_atoms = num_atoms;
     data->candidates = (const int**)candidates;
     data->squared_distances = (const double**)squared_distances;
+    data->coordinates_1 = (const double*)coordinates_1;
+    data->coordinates_2 = (const double*)coordinates_2;
     data->adjacency_list_1 = (const int**)adjacency_list_1;
     data->adjacency_list_2 = (const int**)adjacency_list_2;
+    data->minimize = minimize;
 
     return (const SearchData*)data;
 }
@@ -346,7 +356,7 @@ double search_assignment_recurse(const SearchData* data, int* best_assignment) {
 
         look_up_ids = (int*)realloc(look_up_ids, (look_up_ids[0] + 1) * sizeof(int));
 
-        if (look_up_ids[0] == 0 || OPT_LEVEL == 1)
+        if (look_up_ids[0] == 0 || OPT_LEVEL == 1 || data->minimize == 1)
             search_assignment_recurse_helper(data, state, data->num_atoms, look_up_ids, -1);
         else if (OPT_LEVEL == 2) {
             DisjointSetUnion* dsu = init_disjoint_set_union(data->num_atoms, look_up_ids, data->adjacency_list_1, data->candidates);            
@@ -398,9 +408,12 @@ double search_assignment_recurse(const SearchData* data, int* best_assignment) {
 
 void search_assignment_recurse_helper(const SearchData* data, RecursionState* state, int threshold, int* look_up_ids, int last_id) {
     if (state->assigned_count == threshold) {
-        if (state->current_sum < state->best_sum) {
+        double current_sum = data->minimize == 0 ? state->current_sum : kabsch_squared_dist_sum(data->num_atoms, data->coordinates_1, data->coordinates_2, state->assignment);
+
+        if (current_sum < state->best_sum) {
+            // printf("Found better RMSD: %f\n", sqrt(current_sum / data->num_atoms));
             memcpy(state->best_assignment, state->assignment, data->num_atoms * sizeof(int));
-            state->best_sum = state->current_sum;
+            state->best_sum = current_sum;
         }
     } else {
         const int** adjacency_list_1 = data->adjacency_list_1;
@@ -432,7 +445,7 @@ void search_assignment_recurse_helper(const SearchData* data, RecursionState* st
 
         double current_sum = state->current_sum;
         for (int i = 1; i <= data->candidates[id][0]; i++) {
-            if (current_sum + data->squared_distances[id][i - 1] >= state->best_sum) break;
+            if (data->minimize == 0 && current_sum + data->squared_distances[id][i - 1] >= state->best_sum) break;
 
             int mapped_choice = data->candidates[id][i];
             

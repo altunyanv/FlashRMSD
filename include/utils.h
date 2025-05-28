@@ -23,11 +23,16 @@ typedef struct {
     const int** candidates;
     const double** squared_distances;
     
+    const double* coordinates_1;
+    const double* coordinates_2;
+
     const int** adjacency_list_1;
     const int** adjacency_list_2;
+
+    int minimize;
 } SearchData;
 
-const SearchData* init_search_data(int, int**, double**, int**, int**);
+const SearchData* init_search_data(int, int**, double**, double*, double*, int**, int**, int);
 
 typedef struct {
     int* used_mask_1;

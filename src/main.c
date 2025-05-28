@@ -56,8 +56,6 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    if (!naive_rmsd)    minimize_rmsd = 0;
-
     if (cross_rmsd) {
         MolecularData* mol_data = (MolecularData*)malloc(MAX_CONF_COUNT * sizeof(MolecularData));
 
@@ -84,7 +82,7 @@ int main(int argc, char* argv[]) {
                 if (naive_rmsd) {
                     best_rmsd = rmsd_naive(mol_data + i, mol_data + j, best_assignment, minimize_rmsd);
                 } else {
-                    best_rmsd = rmsd(mol_data + i, mol_data + j, best_assignment);
+                    best_rmsd = rmsd(mol_data + i, mol_data + j, best_assignment, minimize_rmsd);
                 }
                 rmsd_table[i * conf_count + j] = best_rmsd;
                 rmsd_table[j * conf_count + i] = best_rmsd;
@@ -129,7 +127,7 @@ int main(int argc, char* argv[]) {
             if (naive_rmsd) {
                 best_rmsd = rmsd_naive(template_mol_data, mol_data + i, best_assignment, minimize_rmsd);
             } else {
-                best_rmsd = rmsd(template_mol_data, mol_data + i, best_assignment);
+                best_rmsd = rmsd(template_mol_data, mol_data + i, best_assignment, minimize_rmsd);
             }
 
             end = clock();

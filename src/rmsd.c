@@ -29,7 +29,7 @@ int check_for_basic_matches(MolecularData* mol_data_1, MolecularData* mol_data_2
     return 1;
 }
 
-double rmsd(MolecularData* mol_data_1, MolecularData* mol_data_2, int* best_assignment) {
+double rmsd(MolecularData* mol_data_1, MolecularData* mol_data_2, int* best_assignment, int minimize) {
     // Check for basic matches
     if (!check_for_basic_matches(mol_data_1, mol_data_2)) { 
         fprintf(stderr, "Basic matches failed. Molecules are not isomorphic.\n"); return INFINITY; 
@@ -47,7 +47,14 @@ double rmsd(MolecularData* mol_data_1, MolecularData* mol_data_2, int* best_assi
         fprintf(stderr, "Failed to get candidate squared distances.\n"); return INFINITY; 
     }
 
-    const SearchData* data = init_search_data(num_atoms, candidate_data, candidate_squared_distances, mol_data_1->adjacency_list, mol_data_2->adjacency_list);
+    const SearchData* data = init_search_data(num_atoms, 
+                                              candidate_data, 
+                                              candidate_squared_distances, 
+                                              mol_data_1->coordinates,
+                                              mol_data_2->coordinates,
+                                              mol_data_1->adjacency_list, 
+                                              mol_data_2->adjacency_list,
+                                              minimize);
     
     if (!data) { 
         for (int i = 0; i < num_atoms; ++i) free(candidate_data[i]); free(candidate_data);
@@ -66,16 +73,17 @@ double rmsd(MolecularData* mol_data_1, MolecularData* mol_data_2, int* best_assi
 
 
 void rmsd_naive_rec_helper(MolecularData* mol_data_1, MolecularData* mol_data_2, 
-                             int** candidate_data, double** candidate_squared_distances,
-                             int* current_assignment, double current_sum, int minimize,
-                             int* best_assignment, double* best_sum, 
-                             int current_group, int group_count, int** groups) {
+                           int** candidate_data, double** candidate_squared_distances,
+                           int* current_assignment, double current_sum, int minimize,
+                           int* best_assignment, double* best_sum, 
+                           int current_group, int group_count, int** groups) {
 
     if (current_group == group_count) {
         if (minimize)
             current_sum = kabsch_squared_dist_sum(mol_data_1->num_atoms, mol_data_1->coordinates, mol_data_2->coordinates, current_assignment);
 
         if (current_sum < *best_sum) {
+            // printf("Found better RMSD: %f\n", sqrt(current_sum / mol_data_1->num_atoms));
             *best_sum = current_sum;
             memcpy(best_assignment, current_assignment, mol_data_1->num_atoms * sizeof(int));
         }
