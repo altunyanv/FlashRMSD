@@ -7,6 +7,8 @@
 - Ultra-fast execution with optimized backtracking and pruning
 - Accurate symmetry handling for reliable RMSD calculations
 - Lightweight and integrable with minimal dependencies
+- **Minimized RMSD calculation with -m flag**
+- **Support for MOL2, MOL, SDF (MDL variant too) file formats**
 
 FlashRMSD is especially suited for high-throughput and precision-demanding applications where both performance and correctness are critical.
 
@@ -31,6 +33,7 @@ The compiled binary will be located in the `tools/` directory.
 ```bash
 tools/FlashRMSD <query_file_path> [<template_file_path>] 
             [-n]   # Run naive version of algorithm
+            [-m]   # Compute minimized RMSD
             [-x]   # Compute cross-RMSD across all conformations in query file
             [-h]   # Include hydrogen atoms
             [-b]   # Use bond types

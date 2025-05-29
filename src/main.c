@@ -11,7 +11,7 @@ int main(int argc, char* argv[]) {
     if (argc < 2) {
         fprintf(stderr, "Usage: %s <query_file_path> [<template_file_path>] \n\
             [-n <if passed naive version of algorithm will be run] \n\
-            [-m <if passed alongside with -n flag translation-rotational aligned RMSD will be calculated] \n\
+            [-m <if passed translation-rotational aligned RMSD will be calculated] \n\
             [-x <if passed the cross RMSD will be calculated for all conformations of query file] \n\
             [-h <if passed H atoms will be used as well>] \n\
             [-b <if passed bond types will be used as well>] \n\
